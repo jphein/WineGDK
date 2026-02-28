@@ -83,12 +83,18 @@ static HRESULT WINAPI x_system_XSystemGetConsoleId( IXSystemImpl *iface, INT32 c
 
 static HRESULT WINAPI x_system_XSystemGetXboxLiveSandboxId( IXSystemImpl *iface, INT32 sandboxIdSize, LPSTR sandboxId, SIZE_T *sandboxIdUsed )
 {    
+    // Stub if sandboxIdUsed address is 0.
+    if ( !sandboxIdUsed ) {
+        FIXME( "iface %p, sandboxIdSize %d, sandboxId %p, sandboxIdUsed %p was stubbed because sandboxIdUsed was %p!\n", iface, sandboxIdSize, sandboxId, sandboxIdUsed, sandboxIdUsed );
+        return S_OK;
+    }
+
     // Always assume RETAIL environment for Wine
     LPCSTR Id = "RETAIL";
 
     TRACE( "iface %p, sandboxIdSize %d, sandboxId %p, sandboxIdUsed %p\n", iface, sandboxIdSize, sandboxId, sandboxIdUsed );
 
-    if ( !sandboxId || !sandboxIdUsed )
+    if ( !sandboxId )
         return E_POINTER;
 
     if ( sandboxIdSize < XSystemXboxLiveSandboxIdMaxBytes )

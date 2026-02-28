@@ -259,14 +259,12 @@ static HRESULT WINAPI core_input_view3_TryShowWithKind(ICoreInputView3 *iface,
                                                        boolean *result)
 {
     FIXME("iface %p, type %d, result %p stub!\n", iface, type, result);
-    if ( result ) *result = TRUE;
     return S_OK;
 }
 
 static HRESULT WINAPI core_input_view3_TryHide(ICoreInputView3 *iface, boolean *result)
 {
     FIXME("iface %p, result %p stub!\n", iface, result);
-    if ( result ) *result = TRUE;
     return S_OK;
 }
 

@@ -20,7 +20,7 @@
 
 #include "private.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(xgameruntime);
+WINE_DEFAULT_DEBUG_CHANNEL(winapprtboot);
 
 HRESULT WINAPI MddBootstrapInitialize()
 {

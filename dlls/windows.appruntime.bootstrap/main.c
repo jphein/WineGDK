@@ -1,5 +1,5 @@
 /*
- * Xbox Game runtime Library
+ * Windows App Runtime Bootstrap
  *
  * Written by LukasPAH
  *

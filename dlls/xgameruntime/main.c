@@ -124,31 +124,34 @@ typedef HRESULT (WINAPI *InitializeApiImplEx2_ext)( ULONG gdkVer, ULONG gsVer, C
 
 void OnRemoteConnectShow(void* context, uint32_t userIdentifier, XUserPlatformOperation operation, char const* url, char const* code, size_t qrCodeSize, void const* qrCode) {
     (void)context;
-    printf("OnRemoteConnectShow %u %p %s %s\n", userIdentifier, operation, url, code);
+    FIXME("OnRemoteConnectShow %u %p %s %s\n", userIdentifier, operation, url, code);
     fflush(stdout);
 }
 
 void OnRemoteConnectClose( void* context, uint32_t userIdentifier, XUserPlatformOperation operation ) {
     (void)context;
-    printf("OnRemoteConnectClose %u %p\n", userIdentifier, operation);
+    FIXME("OnRemoteConnectClose %u %p\n", userIdentifier, operation);
     fflush(stdout);
 }
 
 BOOL CALLBACK SetUpXgameruntimeCrossPlatformMode(PINIT_ONCE, PVOID, PVOID *) {
+    XUserPlatformRemoteConnectEventHandlers remoteConnect;
+    IXUserPlatform *user;
+    InitializeApiImplEx2_ext func;
+
     xgameruntime_threading = LoadLibraryA("xgameruntime.dll.threading");
-    InitializeApiImplEx2_ext func = (InitializeApiImplEx2_ext)GetProcAddress( xgameruntime_threading, "InitializeApiImplEx2" );
-    if(func) {
-        HRESULT r = func(10002, 7822, 0x8 /* CrossPlatformMode */ | 0x2 /* Default */, 0);
-        if(r != S_OK) {
+    func = (InitializeApiImplEx2_ext)GetProcAddress( xgameruntime_threading, "InitializeApiImplEx2" );
+    
+    if ( func ) {
+        HRESULT hr = func(10002, 7822, 0x8 /* CrossPlatformMode */ | 0x2 /* Default */, 0);
+        if(hr != S_OK) {
             return TRUE;
         }
-        IXUserPlatform*user;
-        QueryApiImpl(&CLSID_XUserImpl, &IID_IXUserPlatform, &user);
-        XUserPlatformRemoteConnectEventHandlers remoteConnect;
+        QueryApiImpl(&CLSID_XUserImpl, &IID_IXUserPlatform, (void *)&user);
         remoteConnect.context = NULL;
-        remoteConnect.show = &OnRemoteConnectShow;     // Display QR code/URL dialog
-        remoteConnect.close = &OnRemoteConnectClose;   // Close authentication dialog
-        IXUserImpl_XUserPlatformRemoteConnectSetEventHandlers(user, NULL, &remoteConnect);
+        remoteConnect.show = (void *)&OnRemoteConnectShow;     // Display QR code/URL dialog
+        remoteConnect.close = (void *)&OnRemoteConnectClose;   // Close authentication dialog
+        IXUserImpl_XUserPlatformRemoteConnectSetEventHandlers((void *)user, NULL, &remoteConnect);
     }
     return TRUE;
 }
@@ -160,8 +163,8 @@ HRESULT WINAPI InitializeApiImplEx2( ULONG gdkVer, ULONG gsVer, CHAR mode, INITI
     //
     //  There's no documented information about what `INITIALIZE_OPTIONS` is,
     // and xgameruntime.lib never utilizes this argument anyway.
-    TRACE("gdkVer %ld, gsVer %ld, mode %d, options %p stub!\n", gdkVer, gsVer, mode, options);
     static INIT_ONCE once = INIT_ONCE_STATIC_INIT;
+    TRACE("gdkVer %ld, gsVer %ld, mode %d, options %p stub!\n", gdkVer, gsVer, mode, options);
     InitOnceExecuteOnce(&once, &SetUpXgameruntimeCrossPlatformMode, NULL, NULL);
     return GDKC_InitAPI( gdkVer, gsVer, mode, options );
 }
@@ -236,13 +239,13 @@ HRESULT WINAPI QueryApiImpl( const GUID *runtimeClassId, REFIID interfaceId, voi
             }
             return IXThreadingImpl_QueryInterface( x_threading_impl, interfaceId, out );
         }
-        return func( runtimeClassId, interfaceId, out );
+        return func( (GUID *)runtimeClassId, interfaceId, out );
     }
     else if ( IsEqualGUID( runtimeClassId, &CLSID_XNetworkingImpl ) )
     {
         return IXNetworkingImpl_QueryInterface( x_networking_impl, interfaceId, out );
     }
-    else if( func && func( runtimeClassId, interfaceId, out ) == S_OK )
+    else if( func && func( (GUID *)runtimeClassId, interfaceId, out ) == S_OK )
     {
         return S_OK;
     }

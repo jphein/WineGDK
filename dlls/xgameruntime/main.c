@@ -225,6 +225,10 @@ HRESULT WINAPI QueryApiImpl( const GUID *runtimeClassId, REFIID interfaceId, voi
     {
         return IXSystemAnalyticsImpl_QueryInterface( x_system_analytics_impl, interfaceId, out );
     }
+    else if ( IsEqualGUID( runtimeClassId, &CLSID_XGameProtocolImpl ) )
+    {
+        return IXGameProtocolImpl_QueryInterface( x_gameprotocol_impl, interfaceId, out );
+    }
     else if ( IsEqualGUID( runtimeClassId, &CLSID_XThreadingImpl ) )
     {
         /**

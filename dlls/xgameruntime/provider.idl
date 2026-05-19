@@ -51,10 +51,12 @@ interface IXUserStore;
 interface IXUserPlatform;
 interface IXUserSignOut;
 interface IXUserImpl;
+interface IXGameProtocolImpl;
 
 coclass XSystemImpl;
 coclass XSystemAnalyticsImpl;
 coclass XGameRuntimeFeatureImpl;
+coclass XGameProtocolImpl;
 
 enum XSystemHandleType
 {
@@ -295,6 +297,18 @@ interface IXUserGamertag : IUnknown
 }
 
 [
+    local,
+    object,
+    uuid(026b010c-06c3-4cdd-bbcb-43f229db1cff)    
+]
+interface IXGameProtocolImpl : IUnknown
+{
+    HRESULT XGameProtocolRegisterForActivation( [in] XTaskQueueHandle queue, [in] void *context, [in] void *callback, [out] XTaskQueueRegistrationToken *token );
+    BOOLEAN XGameProtocolUnregisterForActivation( XTaskQueueRegistrationToken *token, boolean wait );
+    void XGameProtocolActivationCallback( [in] void *context, [in] LPSTR protocolUri );
+}
+
+[
     uuid(e349bd1a-fc20-4e40-b99c-4178cc6b409f)
 ]
 coclass XSystemImpl
@@ -326,3 +340,12 @@ coclass XUserImpl
     [default] interface IXUserImpl;
     interface IXUserGamertag;
 }
+
+[
+    uuid(95fd18d2-74dd-4d7c-aa1b-0b51827665d6)
+]
+coclass XGameProtocolImpl
+{
+    [default] interface IXGameProtocolImpl;
+}
+

@@ -114,18 +114,22 @@ HRESULT mouse_input_device_InitDInput8Device( IN v2_IGameInputDevice *device )
     HRESULT hr;
     HWND hwnd;
     LPDIRECTINPUT8W g_pDI = NULL;
-    LPDIRECTINPUTDEVICE8W g_pDevice;
+    LPDIRECTINPUTDEVICE8W g_pDevice = NULL;
 
     TRACE( "device %p.\n", device );
 
-    /* On X11 there is often no foreground window at GameInput-init time, so
-     * GetForegroundWindow() returns NULL. Fall back to the game window / desktop and use
-     * DISCL_BACKGROUND so the mouse is read regardless of focus (XWayland happened to have a
-     * foreground window, which is why this only failed on X11 and dropped the mouse device). */
+    /* At init time (GameInputCreate, during startup) the game window is not yet
+     * the foreground window — and under Wine on Wayland/X11 GetForegroundWindow()
+     * frequently returns NULL.  The original code bailed with E_FAIL here, which
+     * made mouse_input_device_InitDevice fail and the whole mouse GameInput device
+     * get released — leaving the cohtml Ore UI with no mouse (no cursor, no clicks).
+     *
+     * Use a DISCL_BACKGROUND cooperative level (which DirectInput permits with a
+     * NULL/non-foreground window) so the device survives.  The read path
+     * (mouse_input_device_GetReading) sources buttons from GetAsyncKeyState and the
+     * absolute position from GetCursorPos — both work without acquisition — and
+     * re-acquires the device lazily for relative motion once it is focused. */
     hwnd = GetForegroundWindow();
-    if ( !hwnd ) hwnd = FindWindowW( NULL, L"Minecraft" );
-    if ( !hwnd ) hwnd = GetDesktopWindow();
-    if ( !hwnd ) return E_FAIL;
 
     hr = DirectInput8Create( game_input, DIRECTINPUT_VERSION, &IID_IDirectInput8W, (void**)&g_pDI, NULL );
     if ( FAILED( hr ) ) return hr;
@@ -139,12 +143,12 @@ HRESULT mouse_input_device_InitDInput8Device( IN v2_IGameInputDevice *device )
     hr = g_pDevice->lpVtbl->SetCooperativeLevel( g_pDevice, hwnd, DISCL_BACKGROUND | DISCL_NONEXCLUSIVE );
     if ( FAILED( hr ) ) return hr;
 
-    // Acquire device
-    hr = g_pDevice->lpVtbl->Acquire( g_pDevice );
+    /* Best-effort acquire; failure is non-fatal (read path re-acquires). */
+    g_pDevice->lpVtbl->Acquire( g_pDevice );
 
     game_input_device_SetDInputDevice( device, g_pDevice );
 
-    return hr;
+    return S_OK;
 }
 
 HRESULT mouse_input_device_InitDevice( IN v2_IGameInputDevice *device )
@@ -155,7 +159,10 @@ HRESULT mouse_input_device_InitDevice( IN v2_IGameInputDevice *device )
     HIDP_VALUE_CAPS *valueCaps = NULL;
 
     v2_IGameInputDevice *dev = NULL;
-    v2_GameInputMouseInfo mouse_info;
+    /* Must outlive this function: device_info->mouseInfo below stores its address
+     * and the game reads it later.  A stack local would dangle once init succeeds
+     * (it didn't matter before because init always failed and the device was freed). */
+    static v2_GameInputMouseInfo mouse_info;
     v2_GameInputDeviceInfo *device_info;
     GameInputMouseButtons buttons = GameInputMouseNone;
 
@@ -185,12 +192,9 @@ HRESULT mouse_input_device_InitDevice( IN v2_IGameInputDevice *device )
     v2_IGameInputDevice_GetDeviceInfo( device, (const v2_GameInputDeviceInfo **)&device_info );
     device_info->mouseInfo = &mouse_info;
 
-    // DInput device for mouse devices are manually acquired.
-    // Don't DROP the mouse device if DInput8 acquisition fails (e.g. no foreground window on
-    // X11) — keep it registered so GameInput still reports a mouse (else Bedrock shows the
-    // "missing required component" screen and no buttons register). HID/async path still reads it.
+    // DInput device for mouse devices are manually acquired
     hr = mouse_input_device_InitDInput8Device( device );
-    if ( FAILED( hr ) ) { WARN( "DInput8 mouse init failed %#lx; keeping device\n", hr ); hr = S_OK; }
+    if ( FAILED( hr ) ) return hr;
 
 _CLEANUP:
     if ( FAILED( hr ) )

@@ -123,9 +123,26 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, void *reserved )
 typedef HRESULT (WINAPI *InitializeApiImplEx2_ext)( ULONG gdkVer, ULONG gsVer, CHAR mode, INITIALIZE_OPTIONS *options );
 
 void OnRemoteConnectShow(void* context, uint32_t userIdentifier, XUserPlatformOperation operation, char const* url, char const* code, size_t qrCodeSize, void const* qrCode) {
+    char output_string[256] = "{ ";
+    FILE *file;
     (void)context;
+
+    file = fopen("../login.json", "w");
+
     FIXME("OnRemoteConnectShow %u %p %s %s\n", userIdentifier, operation, url, code);
-    fflush(stdout);
+
+    if ( file == NULL ) {
+        TRACE("Error writing login file");
+    }
+
+    strcat(output_string, "\"verification_uri\": \"");
+    strcat(output_string, url);
+    strcat(output_string, "\", \"user_code\": \"");
+    strcat(output_string, code);
+    strcat(output_string, "\" }");
+
+    fprintf(file, output_string);
+    fclose(file);
 }
 
 void OnRemoteConnectClose( void* context, uint32_t userIdentifier, XUserPlatformOperation operation ) {

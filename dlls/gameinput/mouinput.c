@@ -118,9 +118,15 @@ HRESULT mouse_input_device_InitDInput8Device( IN v2_IGameInputDevice *device )
 
     TRACE( "device %p.\n", device );
 
+    /* On X11 there is often no foreground window at GameInput-init time, so
+     * GetForegroundWindow() returns NULL. Fall back to the game window / desktop and use
+     * DISCL_BACKGROUND so the mouse is read regardless of focus (XWayland happened to have a
+     * foreground window, which is why this only failed on X11 and dropped the mouse device). */
     hwnd = GetForegroundWindow();
+    if ( !hwnd ) hwnd = FindWindowW( NULL, L"Minecraft" );
+    if ( !hwnd ) hwnd = GetDesktopWindow();
     if ( !hwnd ) return E_FAIL;
-                
+
     hr = DirectInput8Create( game_input, DIRECTINPUT_VERSION, &IID_IDirectInput8W, (void**)&g_pDI, NULL );
     if ( FAILED( hr ) ) return hr;
 
@@ -130,7 +136,7 @@ HRESULT mouse_input_device_InitDInput8Device( IN v2_IGameInputDevice *device )
     hr = g_pDevice->lpVtbl->SetDataFormat( g_pDevice, &c_dfDIMouse2 );
     if ( FAILED( hr ) ) return hr;
 
-    hr = g_pDevice->lpVtbl->SetCooperativeLevel( g_pDevice, hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE );
+    hr = g_pDevice->lpVtbl->SetCooperativeLevel( g_pDevice, hwnd, DISCL_BACKGROUND | DISCL_NONEXCLUSIVE );
     if ( FAILED( hr ) ) return hr;
 
     // Acquire device
@@ -179,9 +185,12 @@ HRESULT mouse_input_device_InitDevice( IN v2_IGameInputDevice *device )
     v2_IGameInputDevice_GetDeviceInfo( device, (const v2_GameInputDeviceInfo **)&device_info );
     device_info->mouseInfo = &mouse_info;
 
-    // DInput device for mouse devices are manually acquired
+    // DInput device for mouse devices are manually acquired.
+    // Don't DROP the mouse device if DInput8 acquisition fails (e.g. no foreground window on
+    // X11) — keep it registered so GameInput still reports a mouse (else Bedrock shows the
+    // "missing required component" screen and no buttons register). HID/async path still reads it.
     hr = mouse_input_device_InitDInput8Device( device );
-    if ( FAILED( hr ) ) return hr;
+    if ( FAILED( hr ) ) { WARN( "DInput8 mouse init failed %#lx; keeping device\n", hr ); hr = S_OK; }
 
 _CLEANUP:
     if ( FAILED( hr ) )

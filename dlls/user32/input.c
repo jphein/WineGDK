@@ -758,6 +758,77 @@ BOOL WINAPI GetPointerDeviceRects( HANDLE device, RECT *device_rect, RECT *displ
     return FALSE;
 }
 
+BOOL WINAPI GetPointerInputTransform( UINT32 id, UINT32 history_count, INPUT_TRANSFORM *transforms )
+{
+    UINT32 i;
+    FIXME( "id %u, history_count %u, transforms %p semi-stub!\n", id, history_count, transforms );
+    if (!transforms || !history_count)
+    {
+        SetLastError( ERROR_INVALID_PARAMETER );
+        return FALSE;
+    }
+    for (i = 0; i < history_count; i++)
+    {
+        memset( &transforms[i], 0, sizeof(INPUT_TRANSFORM) );
+        transforms[i]._11 = 1.0f;
+        transforms[i]._22 = 1.0f;
+        transforms[i]._33 = 1.0f;
+        transforms[i]._44 = 1.0f;
+    }
+    return TRUE;
+}
+
+BOOL WINAPI GetPointerFrameInfo( UINT32 id, UINT32 *count, POINTER_INFO *info )
+{
+    FIXME( "id %u, count %p, info %p stub!\n", id, count, info );
+    if (count) *count = 0;
+    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+    return FALSE;
+}
+
+BOOL WINAPI GetPointerFrameInfoHistory( UINT32 id, UINT32 *entries, UINT32 *count, POINTER_INFO *info )
+{
+    FIXME( "id %u, entries %p, count %p, info %p stub!\n", id, entries, count, info );
+    if (entries) *entries = 0;
+    if (count) *count = 0;
+    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+    return FALSE;
+}
+
+BOOL WINAPI GetPointerFramePenInfo( UINT32 id, UINT32 *count, POINTER_PEN_INFO *info )
+{
+    FIXME( "id %u, count %p, info %p stub!\n", id, count, info );
+    if (count) *count = 0;
+    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+    return FALSE;
+}
+
+BOOL WINAPI GetPointerFramePenInfoHistory( UINT32 id, UINT32 *entries, UINT32 *count, POINTER_PEN_INFO *info )
+{
+    FIXME( "id %u, entries %p, count %p, info %p stub!\n", id, entries, count, info );
+    if (entries) *entries = 0;
+    if (count) *count = 0;
+    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+    return FALSE;
+}
+
+BOOL WINAPI GetPointerFrameTouchInfo( UINT32 id, UINT32 *count, POINTER_TOUCH_INFO *info )
+{
+    FIXME( "id %u, count %p, info %p stub!\n", id, count, info );
+    if (count) *count = 0;
+    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+    return FALSE;
+}
+
+BOOL WINAPI GetPointerFrameTouchInfoHistory( UINT32 id, UINT32 *entries, UINT32 *count, POINTER_TOUCH_INFO *info )
+{
+    FIXME( "id %u, entries %p, count %p, info %p stub!\n", id, entries, count, info );
+    if (entries) *entries = 0;
+    if (count) *count = 0;
+    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+    return FALSE;
+}
+
 BOOL WINAPI GetPointerPenInfo( UINT32 id, POINTER_PEN_INFO *info )
 {
     FIXME( "id %u, info %p stub!\n", id, info );

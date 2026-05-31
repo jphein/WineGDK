@@ -4045,6 +4045,10 @@ static HRESULT STDMETHODCALLTYPE d3d11_device_CreateBuffer(ID3D11Device5 *iface,
 
     TRACE("iface %p, desc %p, data %p, buffer %p.\n", iface, desc, data, buffer);
 
+    if (desc)
+        TRACE("  ByteWidth %u, Usage %u, BindFlags %#x, CPUAccessFlags %#x, MiscFlags %#x.\n",
+              desc->ByteWidth, desc->Usage, desc->BindFlags, desc->CPUAccessFlags, desc->MiscFlags);
+
     if (FAILED(hr = d3d_buffer_create(device, desc, data, &object)))
         return hr;
 
@@ -4992,6 +4996,19 @@ static HRESULT STDMETHODCALLTYPE d3d11_device_CheckFeatureSupport(ID3D11Device5 
             }
 
             return d3d11_device_CheckFormatSupport(iface, data->InFormat, &data->OutFormatSupport);
+        }
+
+        case D3D11_FEATURE_FORMAT_SUPPORT2:
+        {
+            D3D11_FEATURE_DATA_FORMAT_SUPPORT2 *data = feature_support_data;
+            if (feature_support_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u for D3D11_FEATURE_FORMAT_SUPPORT2.\n", feature_support_data_size);
+                return E_INVALIDARG;
+            }
+
+            data->OutFormatSupport2 = 0;
+            return S_OK;
         }
 
         case D3D11_FEATURE_D3D9_SIMPLE_INSTANCING_SUPPORT:

@@ -23,6 +23,7 @@
 
 #include "inputdevice.h"
 #include "mouinput.h"
+#include "inputreading.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ginput);
 
@@ -521,6 +522,138 @@ static uint64_t WINAPI game_input2_GetCurrentTimestamp( v2_IGameInput *iface )
     return (uint64_t)0;
 }
 
+/* --- Gamepad reading via XInput ---------------------------------------------
+ * Bedrock's Ore-UI/menu polls GetCurrentReading(GameInputKindGamepad); the
+ * original code returned E_NOTIMPL there, so a connected controller did nothing.
+ * XInput reads the pad from the Linux kernel via Wine (independent of the display
+ * server), so this also works under Wayland. Dynamically loaded to avoid a link
+ * dependency. */
+typedef struct { WORD wButtons; BYTE bLeftTrigger; BYTE bRightTrigger;
+                 SHORT sThumbLX; SHORT sThumbLY; SHORT sThumbRX; SHORT sThumbRY; } XI_GAMEPAD;
+typedef struct { DWORD dwPacketNumber; XI_GAMEPAD Gamepad; } XI_STATE;
+typedef DWORD (WINAPI *PFN_XInputGetState)( DWORD, XI_STATE * );
+
+/* Map an XInput state into GameInputGamepadState. */
+static void map_xinput( const XI_STATE *xi, GameInputGamepadState *gs )
+{
+    int gb = GameInputGamepadNone;
+    memset( gs, 0, sizeof(*gs) );
+    if ( xi->Gamepad.wButtons & 0x0010 ) gb |= GameInputGamepadMenu;   /* START */
+    if ( xi->Gamepad.wButtons & 0x0020 ) gb |= GameInputGamepadView;   /* BACK */
+    if ( xi->Gamepad.wButtons & 0x1000 ) gb |= GameInputGamepadA;
+    if ( xi->Gamepad.wButtons & 0x2000 ) gb |= GameInputGamepadB;
+    if ( xi->Gamepad.wButtons & 0x4000 ) gb |= GameInputGamepadX;
+    if ( xi->Gamepad.wButtons & 0x8000 ) gb |= GameInputGamepadY;
+    if ( xi->Gamepad.wButtons & 0x0001 ) gb |= GameInputGamepadDPadUp;
+    if ( xi->Gamepad.wButtons & 0x0002 ) gb |= GameInputGamepadDPadDown;
+    if ( xi->Gamepad.wButtons & 0x0004 ) gb |= GameInputGamepadDPadLeft;
+    if ( xi->Gamepad.wButtons & 0x0008 ) gb |= GameInputGamepadDPadRight;
+    if ( xi->Gamepad.wButtons & 0x0100 ) gb |= GameInputGamepadLeftShoulder;
+    if ( xi->Gamepad.wButtons & 0x0200 ) gb |= GameInputGamepadRightShoulder;
+    if ( xi->Gamepad.wButtons & 0x0040 ) gb |= GameInputGamepadLeftThumbstick;
+    if ( xi->Gamepad.wButtons & 0x0080 ) gb |= GameInputGamepadRightThumbstick;
+    gs->buttons = gb;
+    gs->leftTrigger      = xi->Gamepad.bLeftTrigger  / 255.0f;
+    gs->rightTrigger     = xi->Gamepad.bRightTrigger / 255.0f;
+    gs->leftThumbstickX  = xi->Gamepad.sThumbLX / 32767.0f;
+    gs->leftThumbstickY  = xi->Gamepad.sThumbLY / 32767.0f;
+    gs->rightThumbstickX = xi->Gamepad.sThumbRX / 32767.0f;
+    gs->rightThumbstickY = xi->Gamepad.sThumbRY / 32767.0f;
+}
+
+/* Map a DirectInput DIJOYSTATE2 into GameInputGamepadState. Generic HID gamepads
+ * (Stadia, PS3, clones) appear via DInput, NOT XInput. Axis range is the DInput
+ * default 0..65535 (center 32768). Button order is the common DInput layout
+ * (0=A/cross, 1=B/circle, 2=X/square, 3=Y/triangle); refined once we observe the
+ * actual pad. POV hat 0 drives the d-pad (cohtml menu navigation needs this). */
+static void map_dijoystate( const DIJOYSTATE2 *js, GameInputGamepadState *gs )
+{
+    int gb = GameInputGamepadNone;
+    DWORD pov = js->rgdwPOV[0];
+    memset( gs, 0, sizeof(*gs) );
+
+    if ( (pov & 0xFFFF) != 0xFFFF )
+    {
+        if ( pov >= 31500 || pov <= 4500 )  gb |= GameInputGamepadDPadUp;
+        if ( pov >= 4500  && pov <= 13500 ) gb |= GameInputGamepadDPadRight;
+        if ( pov >= 13500 && pov <= 22500 ) gb |= GameInputGamepadDPadDown;
+        if ( pov >= 22500 && pov <= 31500 ) gb |= GameInputGamepadDPadLeft;
+    }
+    if ( js->rgbButtons[0] & 0x80 ) gb |= GameInputGamepadA;
+    if ( js->rgbButtons[1] & 0x80 ) gb |= GameInputGamepadB;
+    if ( js->rgbButtons[2] & 0x80 ) gb |= GameInputGamepadX;
+    if ( js->rgbButtons[3] & 0x80 ) gb |= GameInputGamepadY;
+    if ( js->rgbButtons[4] & 0x80 ) gb |= GameInputGamepadLeftShoulder;
+    if ( js->rgbButtons[5] & 0x80 ) gb |= GameInputGamepadRightShoulder;
+    if ( js->rgbButtons[6] & 0x80 ) gb |= GameInputGamepadView;   /* Select */
+    if ( js->rgbButtons[7] & 0x80 ) gb |= GameInputGamepadMenu;   /* Start */
+    if ( js->rgbButtons[8] & 0x80 ) gb |= GameInputGamepadLeftThumbstick;
+    if ( js->rgbButtons[9] & 0x80 ) gb |= GameInputGamepadRightThumbstick;
+    gs->buttons = gb;
+
+    /* normalize axes 0..65535 (center 32768) -> -1..1; DInput Y is down-positive */
+    gs->leftThumbstickX  = (js->lX  - 32768) / 32768.0f;
+    gs->leftThumbstickY  = -(js->lY - 32768) / 32768.0f;
+    gs->rightThumbstickX = (js->lRx - 32768) / 32768.0f;
+    gs->rightThumbstickY = -(js->lRy - 32768) / 32768.0f;
+}
+
+static HRESULT read_gamepad( v2_IGameInputDevice *device, uint64_t timestamp, v2_IGameInputReading **reading )
+{
+    static PFN_XInputGetState pXInputGetState = NULL;
+    static BOOL loaded = FALSE;
+    GameInputGamepadState gs;
+    XI_STATE xi;
+    DWORD idx;
+
+    /* 1) XInput first (Xbox-compatible pads). */
+    if ( !loaded )
+    {
+        HMODULE h;
+        loaded = TRUE;
+        if ( !(h = LoadLibraryA( "xinput1_4.dll" )) )
+            if ( !(h = LoadLibraryA( "xinput1_3.dll" )) )
+                h = LoadLibraryA( "xinput9_1_0.dll" );
+        if ( h ) pXInputGetState = (PFN_XInputGetState)GetProcAddress( h, "XInputGetState" );
+        TRACE( "XInput module=%p XInputGetState=%p\n", h, pXInputGetState );
+    }
+    if ( pXInputGetState )
+    {
+        for ( idx = 0; idx < 4; idx++ )
+        {
+            memset( &xi, 0, sizeof(xi) );
+            if ( pXInputGetState( idx, &xi ) == ERROR_SUCCESS )
+            {
+                map_xinput( &xi, &gs );
+                return game_input_reading_CreateForGamepadDevice( device, gs, timestamp, reading );
+            }
+        }
+    }
+
+    /* 2) DirectInput8 fallback (Stadia / PS3 / generic HID pads). The device created
+     *    in device_provider_create has a DIJOYSTATE2 DInput device attached. */
+    {
+        LPDIRECTINPUTDEVICE8W dev = NULL;
+        DIJOYSTATE2 js;
+        HRESULT hr = game_input_device_AcquireDInputDevice( device, &dev );
+        if ( FAILED( hr ) || !dev ) return E_FAIL;
+
+        dev->lpVtbl->Poll( dev );
+        memset( &js, 0, sizeof(js) );
+        hr = dev->lpVtbl->GetDeviceState( dev, sizeof(js), &js );
+        if ( hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED )
+        {
+            dev->lpVtbl->Acquire( dev );
+            dev->lpVtbl->Poll( dev );
+            hr = dev->lpVtbl->GetDeviceState( dev, sizeof(js), &js );
+        }
+        if ( FAILED( hr ) ) return hr;
+
+        map_dijoystate( &js, &gs );
+        return game_input_reading_CreateForGamepadDevice( device, gs, timestamp, reading );
+    }
+}
+
 static HRESULT WINAPI game_input2_GetCurrentReading( v2_IGameInput *iface, GameInputKind kind,
                                                    v2_IGameInputDevice *device, v2_IGameInputReading **reading )
 {
@@ -530,12 +663,17 @@ static HRESULT WINAPI game_input2_GetCurrentReading( v2_IGameInput *iface, GameI
 
     if ( kind == GameInputKindMouse )
     {
-        // TODO: Using HID to read mouse values is finicky 
+        // TODO: Using HID to read mouse values is finicky
         //status = mouse_input_device_ReadCurrentStateFromHID( device, GetTickCount64(), reading );
         status = mouse_input_device_ReadCurrentStateFromDInput8( device, GetTickCount64(), reading );
-    } else
+    }
+    else if ( kind == GameInputKindGamepad )
     {
-        FIXME("requested controller device!\n");
+        status = read_gamepad( device, GetTickCount64(), reading );
+    }
+    else
+    {
+        FIXME("requested unsupported device kind %d!\n", (int)kind);
         return E_NOTIMPL;
     }
 

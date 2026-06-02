@@ -114,23 +114,13 @@ HRESULT mouse_input_device_InitDInput8Device( IN v2_IGameInputDevice *device )
     HRESULT hr;
     HWND hwnd;
     LPDIRECTINPUT8W g_pDI = NULL;
-    LPDIRECTINPUTDEVICE8W g_pDevice = NULL;
+    LPDIRECTINPUTDEVICE8W g_pDevice;
 
     TRACE( "device %p.\n", device );
 
-    /* At init time (GameInputCreate, during startup) the game window is not yet
-     * the foreground window — and under Wine on Wayland/X11 GetForegroundWindow()
-     * frequently returns NULL.  The original code bailed with E_FAIL here, which
-     * made mouse_input_device_InitDevice fail and the whole mouse GameInput device
-     * get released — leaving the cohtml Ore UI with no mouse (no cursor, no clicks).
-     *
-     * Use a DISCL_BACKGROUND cooperative level (which DirectInput permits with a
-     * NULL/non-foreground window) so the device survives.  The read path
-     * (mouse_input_device_GetReading) sources buttons from GetAsyncKeyState and the
-     * absolute position from GetCursorPos — both work without acquisition — and
-     * re-acquires the device lazily for relative motion once it is focused. */
     hwnd = GetForegroundWindow();
-
+    if ( !hwnd ) return E_FAIL;
+                
     hr = DirectInput8Create( game_input, DIRECTINPUT_VERSION, &IID_IDirectInput8W, (void**)&g_pDI, NULL );
     if ( FAILED( hr ) ) return hr;
 
@@ -140,15 +130,15 @@ HRESULT mouse_input_device_InitDInput8Device( IN v2_IGameInputDevice *device )
     hr = g_pDevice->lpVtbl->SetDataFormat( g_pDevice, &c_dfDIMouse2 );
     if ( FAILED( hr ) ) return hr;
 
-    hr = g_pDevice->lpVtbl->SetCooperativeLevel( g_pDevice, hwnd, DISCL_BACKGROUND | DISCL_NONEXCLUSIVE );
+    hr = g_pDevice->lpVtbl->SetCooperativeLevel( g_pDevice, hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE );
     if ( FAILED( hr ) ) return hr;
 
-    /* Best-effort acquire; failure is non-fatal (read path re-acquires). */
-    g_pDevice->lpVtbl->Acquire( g_pDevice );
+    // Acquire device
+    hr = g_pDevice->lpVtbl->Acquire( g_pDevice );
 
     game_input_device_SetDInputDevice( device, g_pDevice );
 
-    return S_OK;
+    return hr;
 }
 
 HRESULT mouse_input_device_InitDevice( IN v2_IGameInputDevice *device )
@@ -159,10 +149,7 @@ HRESULT mouse_input_device_InitDevice( IN v2_IGameInputDevice *device )
     HIDP_VALUE_CAPS *valueCaps = NULL;
 
     v2_IGameInputDevice *dev = NULL;
-    /* Must outlive this function: device_info->mouseInfo below stores its address
-     * and the game reads it later.  A stack local would dangle once init succeeds
-     * (it didn't matter before because init always failed and the device was freed). */
-    static v2_GameInputMouseInfo mouse_info;
+    v2_GameInputMouseInfo mouse_info;
     v2_GameInputDeviceInfo *device_info;
     GameInputMouseButtons buttons = GameInputMouseNone;
 
